@@ -14,6 +14,12 @@ npm install
 npm run dev
 ```
 
+GitHub Pages 静态版：
+
+```bash
+npm run build:pages
+```
+
 生产验证：
 
 ```bash

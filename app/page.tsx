@@ -66,14 +66,18 @@ export default function Home() {
   const [planName, setPlanName] = useState("我的新疆拼盘");
   const [toast, setToast] = useState("");
   const [dayExpanded, setDayExpanded] = useState(true);
+  const [mapMode, setMapMode] = useState<"explore" | "route">("explore");
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (raw) setSavedPlans(JSON.parse(raw) as SavedPlan[]);
-    } catch {
-      setToast("本地方案读取失败，可继续编辑当前路线");
-    }
+    const timer = window.setTimeout(() => {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (raw) setSavedPlans(JSON.parse(raw) as SavedPlan[]);
+      } catch {
+        setToast("本地方案读取失败，可继续编辑当前路线");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const persistPlans = (next: SavedPlan[]) => {
@@ -413,52 +417,142 @@ export default function Home() {
             <div className="section-head">
               <div>
                 <p className="section-kicker">STEP 2 · 地图点选</p>
-                <h2>按你想去的顺序加入地点</h2>
-                <p>橙线是空间示意，不是导航路线；点击已选地点可看玩法与风险。</p>
+                <h2>北疆决策地图 · 按顺序加点</h2>
+                <p>先看三个区域的相对位置，再沿橙色路线检查顺序、车程与回头路。</p>
               </div>
               <div className="legend">
-                <span><i className="legend-dot airport-dot" />机场</span>
-                <span><i className="legend-dot place-dot" />地点</span>
-                <span><i className="legend-line" />规划连线</span>
+                <span><i className="legend-dot airport-dot" />进出机场</span>
+                <span><i className="legend-dot place-dot" />可加地点</span>
+                <span><i className="legend-line" />已选顺序</span>
               </div>
             </div>
 
+            <div className="map-control-row">
+              <div className="region-tabs map-region-tabs" aria-label="地图区域筛选">
+                {regionOptions.map((option) => (
+                  <button
+                    className={region === option ? "active" : ""}
+                    key={option}
+                    type="button"
+                    onClick={() => setRegion(option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <div className="map-mode-switch" aria-label="地图显示模式">
+                <button
+                  className={mapMode === "explore" ? "active" : ""}
+                  type="button"
+                  onClick={() => setMapMode("explore")}
+                >
+                  全部可选
+                </button>
+                <button
+                  className={mapMode === "route" ? "active" : ""}
+                  type="button"
+                  onClick={() => setMapMode("route")}
+                >
+                  只看已选路线
+                </button>
+              </div>
+            </div>
+
+            <div className="map-route-overview" aria-label="当前路线顺序">
+              <span className="route-overview-title">
+                当前路线
+                <small>{stops.length} 个游玩节点 · 约 {stats.totalKm} km</small>
+              </span>
+              <ol>
+                <li className="airport-step"><b>进</b>{airportById[startId].city}</li>
+                {stops.map((stop, index) => (
+                  <li key={stop.uid}><b>{index + 1}</b>{placeById[stop.placeId].name}</li>
+                ))}
+                <li className="airport-step end"><b>出</b>{airportById[endId].city}</li>
+              </ol>
+            </div>
+
             <div className="map-scroll">
-              <div className="map-canvas" aria-label="北疆路线空间示意图">
-                <span className="map-region region-altay">阿勒泰秋色区</span>
-                <span className="map-region region-ili">伊犁河谷</span>
-                <span className="map-region region-urc">乌鲁木齐中转区</span>
+              <div className={["map-canvas", "map-mode-" + mapMode].join(" ")} aria-label="北疆路线空间示意图">
+                <div className={region === "全部" || region === "阿勒泰" ? "map-zone zone-altay active" : "map-zone zone-altay"}>
+                  <span>阿勒泰秋色区</span>
+                  <small>喀纳斯 · 禾木 · 白哈巴</small>
+                </div>
+                <div className={region === "全部" || region === "乌鲁木齐周边" ? "map-zone zone-corridor active" : "map-zone zone-corridor"}>
+                  <span>北疆转场走廊</span>
+                  <small>克拉玛依 · 乌鲁木齐</small>
+                </div>
+                <div className={region === "全部" || region === "伊犁" ? "map-zone zone-ili active" : "map-zone zone-ili"}>
+                  <span>伊犁河谷</span>
+                  <small>赛里木湖 · 夏塔 · 那拉提</small>
+                </div>
+                <div className="mountain-belt" aria-hidden="true"><span>天山山脉方向</span></div>
+                <div className="map-compass" aria-hidden="true"><b>↑</b><span>北</span></div>
                 {routeNodes.slice(0, -1).map((node, index) => {
                   const next = routeNodes[index + 1];
                   const dx = next.x - node.x;
                   const dy = next.y - node.y;
                   const length = Math.sqrt(dx * dx + dy * dy);
                   const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                  const leg = stats.legs[index];
                   return (
-                    <span
-                      className="route-line"
-                      key={node.id + "-" + next.id + "-" + index}
-                      style={{
-                        left: node.x + "%",
-                        top: node.y + "%",
-                        width: length + "%",
-                        transform: "rotate(" + angle + "deg)",
-                      }}
-                    />
+                    <span className="route-segment" key={node.id + "-" + next.id + "-" + index}>
+                      <i
+                        className="route-line route-line-shadow"
+                        style={{
+                          left: node.x + "%",
+                          top: node.y + "%",
+                          width: length + "%",
+                          transform: "rotate(" + angle + "deg)",
+                        }}
+                      />
+                      <i
+                        className="route-line"
+                        style={{
+                          left: node.x + "%",
+                          top: node.y + "%",
+                          width: length + "%",
+                          transform: "rotate(" + angle + "deg)",
+                        }}
+                      />
+                      <span
+                        className="route-leg-marker"
+                        style={{ left: (node.x + next.x) / 2 + "%", top: (node.y + next.y) / 2 + "%" }}
+                      >
+                        <b>{index + 1}</b>
+                        {leg && <small>{leg.km}km</small>}
+                      </span>
+                    </span>
                   );
                 })}
                 {airports.map((airport) => {
                   const order = mapOrder(airport.id, "airport");
+                  const role = startId === airport.id && endId === airport.id
+                    ? "往返"
+                    : startId === airport.id
+                      ? "进"
+                      : endId === airport.id
+                        ? "出"
+                        : "";
                   return (
                     <button
-                      className={["map-node", "airport-node", order ? "selected" : ""].join(" ")}
+                      className={[
+                        "map-node",
+                        "airport-node",
+                        order ? "selected" : "",
+                        role ? "role-" + role : "",
+                        airport.y > 82 ? "edge-bottom" : "",
+                        airport.x < 18 ? "edge-left" : "",
+                        airport.x > 78 ? "edge-right" : "",
+                      ].join(" ")}
                       key={airport.id}
                       style={{ left: airport.x + "%", top: airport.y + "%" }}
                       type="button"
                       onClick={() => setStartId(airport.id)}
-                      title={"点击设为进疆机场：" + airport.name}
+                      title={role ? airport.name + " · 当前" + role + "机场" : "点击设为进疆机场：" + airport.name}
+                      aria-label={role ? airport.name + "，当前" + role + "机场" : "将" + airport.name + "设为进疆机场"}
                     >
-                      {order && <b>{order}</b>}
+                      {role && <b>{role}</b>}
                       <span>{airport.code}</span>
                       <small>{airport.city}</small>
                     </button>
@@ -467,35 +561,47 @@ export default function Home() {
                 {places.map((place) => {
                   const selected = selectedPlaceIds.has(place.id);
                   const order = mapOrder(place.id, "place");
+                  const outsideRegion = region !== "全部" && region !== place.region && !selected;
+                  const routeHidden = mapMode === "route" && !selected;
                   return (
                     <button
-                      className={["map-node", "place-node", selected ? "selected" : ""].join(" ")}
+                      className={[
+                        "map-node",
+                        "place-node",
+                        selected ? "selected" : "",
+                        outsideRegion ? "outside-region" : "",
+                        routeHidden ? "route-hidden" : "",
+                        place.y > 82 ? "edge-bottom" : "",
+                        place.x < 18 ? "edge-left" : "",
+                        place.x > 78 ? "edge-right" : "",
+                      ].join(" ")}
                       key={place.id}
                       style={{ left: place.x + "%", top: place.y + "%" }}
                       type="button"
                       onClick={() => (selected ? setDetailId(place.id) : addPlace(place.id))}
                       aria-pressed={selected}
+                      aria-label={selected ? place.name + "，已加入，点击查看详情" : "将" + place.name + "加入路线"}
                     >
-                      {order && <b>{order}</b>}
+                      {order && <b>{Math.max(1, Number(order) - 1)}</b>}
                       <span>{selected ? "✓" : "+"}</span>
                       <small>{place.name}</small>
                     </button>
                   );
                 })}
-                <div className="map-scale-note">位置经过压缩，仅帮助判断方向与回头路</div>
+                <div className="map-scale-note">空间位置经过压缩 · 橙线不等于真实道路</div>
               </div>
             </div>
 
-            <div className="region-tabs" aria-label="地点区域筛选">
-              {regionOptions.map((option) => (
-                <button
-                  className={region === option ? "active" : ""}
-                  key={option}
-                  type="button"
-                  onClick={() => setRegion(option)}
-                >
-                  {option}
-                </button>
+            <div className="map-leg-strip" aria-label="当前路线分段车程">
+              {stats.legs.map((leg, index) => (
+                <article className={leg.fallback ? "needs-check" : ""} key={leg.fromId + "-" + leg.toId + "-" + index}>
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{leg.fromName} → {leg.toName}</strong>
+                    <small>{leg.km} km · 纯驾驶 {leg.driveHours}h · 现实转场约 {leg.realHours}h</small>
+                  </div>
+                  <em>{leg.fallback ? "待导航" : "资料估算"}</em>
+                </article>
               ))}
             </div>
 
@@ -767,8 +873,9 @@ export default function Home() {
       </footer>
 
       {detail && (
-        <div className="overlay" role="presentation" onMouseDown={() => setDetailId(null)}>
-          <aside className="detail-sheet" role="dialog" aria-modal="true" aria-label={detail.name + "详情"} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="overlay">
+          <button className="overlay-backdrop" type="button" onClick={() => setDetailId(null)} aria-label="关闭地点详情" />
+          <aside className="detail-sheet" role="dialog" aria-modal="true" aria-label={detail.name + "详情"}>
             <button className="sheet-close" type="button" onClick={() => setDetailId(null)} aria-label="关闭详情">×</button>
             <figure>
               <img src={detail.image} alt={detail.imageAlt} />
@@ -808,8 +915,9 @@ export default function Home() {
       )}
 
       {savedOpen && (
-        <div className="overlay" role="presentation" onMouseDown={() => setSavedOpen(false)}>
-          <aside className="saved-sheet" role="dialog" aria-modal="true" aria-label="我的方案" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="overlay">
+          <button className="overlay-backdrop" type="button" onClick={() => setSavedOpen(false)} aria-label="关闭我的方案" />
+          <aside className="saved-sheet" role="dialog" aria-modal="true" aria-label="我的方案">
             <div className="saved-head">
               <div>
                 <p className="section-kicker">本机保存</p>

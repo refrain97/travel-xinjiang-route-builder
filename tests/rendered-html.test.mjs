@@ -29,6 +29,9 @@ test("server-renders the Xinjiang route builder", async () => {
   const html = await response.text();
   assert.match(html, /新疆自由拼盘/);
   assert.match(html, /任意选择进疆与离疆机场/);
+  assert.match(html, /北疆决策地图/);
+  assert.match(html, /只看已选路线/);
+  assert.match(html, /空间位置经过压缩/);
   assert.match(html, /Day 1/);
   assert.match(html, /未接入实时航班/);
   assert.match(html, /og\.png/);
