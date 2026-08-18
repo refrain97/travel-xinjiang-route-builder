@@ -29,6 +29,8 @@ type SavedPlan = {
   startDate: string;
   endDate: string;
   carMode: CarMode;
+  arrivalNights?: number;
+  departureNights?: number;
   stops: RouteStop[];
 };
 
@@ -57,6 +59,8 @@ export default function Home() {
   const [endId, setEndId] = useState("aat");
   const [startDate, setStartDate] = useState("2026-09-12");
   const [endDate] = useState("2026-09-20");
+  const [arrivalNights, setArrivalNights] = useState(1);
+  const [departureNights, setDepartureNights] = useState(0);
   const [stops, setStops] = useState<RouteStop[]>(defaultStops);
   const [carMode, setCarMode] = useState<CarMode>("compare");
   const [region, setRegion] = useState<(typeof regionOptions)[number]>("全部");
@@ -92,8 +96,8 @@ export default function Home() {
   };
 
   const stats = useMemo(
-    () => calculateStats(startId, stops, endId, startDate, endDate),
-    [startId, stops, endId, startDate, endDate],
+    () => calculateStats(startId, stops, endId, startDate, endDate, arrivalNights, departureNights),
+    [startId, stops, endId, startDate, endDate, arrivalNights, departureNights],
   );
   const warnings = useMemo(
     () => buildWarnings(stats, stops, startId, endId),
@@ -102,8 +106,8 @@ export default function Home() {
   const carComparison = useMemo(() => compareCarReturn(startId, endId), [startId, endId]);
   const routeLegModes = useMemo(() => stats.legs.map((leg) => leg.mode), [stats.legs]);
   const days = useMemo(
-    () => generateDays(startId, stops, endId, startDate, endDate),
-    [startId, stops, endId, startDate, endDate],
+    () => generateDays(startId, stops, endId, startDate, endDate, arrivalNights, departureNights),
+    [startId, stops, endId, startDate, endDate, arrivalNights, departureNights],
   );
 
   const coreAirports = airports.filter((airport) => airport.core);
@@ -189,6 +193,8 @@ export default function Home() {
   };
 
   const applyPreset = (preset: "altay" | "cross") => {
+    setArrivalNights(1);
+    setDepartureNights(0);
     if (preset === "altay") {
       setStartId("aat");
       setEndId("aat");
@@ -224,6 +230,8 @@ export default function Home() {
       startDate,
       endDate,
       carMode,
+      arrivalNights,
+      departureNights,
       stops,
     };
     persistPlans([saved, ...savedPlans]);
@@ -236,6 +244,8 @@ export default function Home() {
     setEndId(plan.endId);
     setStartDate(plan.startDate);
     setCarMode(plan.carMode);
+    setArrivalNights(plan.arrivalNights ?? 1);
+    setDepartureNights(plan.departureNights ?? 0);
     setStops(plan.stops.map((stop) => ({ ...stop, uid: stop.uid + "-load-" + Date.now() })));
     setPlanName(plan.name);
     setSavedOpen(false);
@@ -248,6 +258,8 @@ export default function Home() {
       id: "plan-" + Date.now(),
       name: plan.name + " · 副本",
       updatedAt: new Date().toISOString(),
+      arrivalNights: plan.arrivalNights ?? 1,
+      departureNights: plan.departureNights ?? 0,
       stops: plan.stops.map((stop) => ({ ...stop, uid: stop.uid + "-copy-" + Date.now() })),
     };
     persistPlans([copy, ...savedPlans]);
@@ -547,13 +559,78 @@ export default function Home() {
             <div className="section-head">
               <div>
                 <p className="section-kicker">STEP 3 · 顺序与停留</p>
-                <h2>把每一站调到真实节奏</h2>
-                <p>游玩天数控制时间账，住宿夜数控制连住与换宿；两者不会被偷偷等同。</p>
+                <h2>先把每一晚落下，再生成每天行程</h2>
+                <p>自然日、住宿和 Day 1—Day N 共用同一条时间轴；没有安排的夜晚会直接标出。</p>
               </div>
               <div className="inline-actions">
                 <button className="button ghost compact" type="button" onClick={reverseRoute}>⇄ 反转整条路线</button>
                 <button className="button ghost compact" type="button" onClick={() => setStops([])}>清空地点</button>
               </div>
+            </div>
+
+            <div className={["night-ledger", stats.nightBalance === 0 ? "aligned" : "needs-work"].join(" ")}>
+              <div className="night-ledger-head">
+                <div>
+                  <span>住宿总账</span>
+                  <strong>{stats.naturalDays} 天固定 {stats.requiredNights} 晚</strong>
+                </div>
+                <p>
+                  已安排 <b>{stats.plannedNights} / {stats.requiredNights} 晚</b>
+                  {stats.nightBalance === 0
+                    ? " · 已对齐"
+                    : stats.nightBalance < 0
+                      ? ` · 还缺 ${Math.abs(stats.nightBalance)} 晚`
+                      : ` · 多出 ${stats.nightBalance} 晚`}
+                </p>
+              </div>
+              <div className="night-progress" aria-hidden="true">
+                <span
+                  style={{
+                    width:
+                      (stats.requiredNights
+                        ? Math.min(100, (stats.plannedNights / stats.requiredNights) * 100)
+                        : 100) + "%",
+                  }}
+                />
+              </div>
+              <div className="night-slots" aria-label="逐晚住宿安排">
+                {days.slice(0, stats.requiredNights).map((day) => (
+                  <span
+                    className={day.nightStatus === "assigned" ? "night-slot assigned" : "night-slot missing"}
+                    key={day.day}
+                  >
+                    <b>第 {day.nightNumber} 晚</b>
+                    <em>{day.nightStatus === "assigned" ? day.nightLocation : "住宿待定"}</em>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="endpoint-stays" aria-label="机场城市住宿设置">
+              <article className="endpoint-stay-card arrival">
+                <div>
+                  <span>抵达住宿</span>
+                  <strong>{airportById[startId].city}</strong>
+                  <small>默认把 Day 1 当晚落在进疆机场城市</small>
+                </div>
+                <div className="endpoint-stepper" aria-label={airportById[startId].city + "抵达住宿晚数"}>
+                  <button type="button" onClick={() => setArrivalNights((value) => Math.max(0, value - 1))}>−</button>
+                  <strong>{arrivalNights} 晚</strong>
+                  <button type="button" onClick={() => setArrivalNights((value) => Math.min(4, value + 1))}>＋</button>
+                </div>
+              </article>
+              <article className="endpoint-stay-card departure">
+                <div>
+                  <span>返程前住宿</span>
+                  <strong>{airportById[endId].city}</strong>
+                  <small>早班机或末段较远时，可在离疆城市留宿</small>
+                </div>
+                <div className="endpoint-stepper" aria-label={airportById[endId].city + "返程前住宿晚数"}>
+                  <button type="button" onClick={() => setDepartureNights((value) => Math.max(0, value - 1))}>−</button>
+                  <strong>{departureNights} 晚</strong>
+                  <button type="button" onClick={() => setDepartureNights((value) => Math.min(4, value + 1))}>＋</button>
+                </div>
+              </article>
             </div>
 
             <div className="route-chain" aria-label="当前路线">
@@ -666,8 +743,8 @@ export default function Home() {
             <div className="section-head">
               <div>
                 <p className="section-kicker">自动生成 · 可打印</p>
-                <h2>Day 1—Day {days.length} 逐日行程</h2>
-                <p>日期固定到本次旅行窗口；航班首尾保留为待回填，不伪装实时结果。</p>
+                <h2>Day 1—Day {stats.naturalDays} 逐日行程</h2>
+                <p>每张卡片直接读取上面的住宿时间轴；Day 1 当晚、缺住哪晚和最后返程日都会一一对应。</p>
               </div>
               <div className="inline-actions no-print">
                 <button className="button ghost compact" type="button" onClick={copySummary}>复制文本</button>
@@ -683,7 +760,14 @@ export default function Home() {
             {dayExpanded && (
               <div className="day-list">
                 {days.map((day) => (
-                  <article className={["day-card", day.overflow ? "overflow" : ""].join(" ")} key={day.day}>
+                  <article
+                    className={[
+                      "day-card",
+                      day.overflow ? "overflow" : "",
+                      day.nightStatus === "unassigned" ? "missing-night" : "",
+                    ].join(" ")}
+                    key={day.day}
+                  >
                     <div className="day-date">
                       <strong>Day {day.day}</strong>
                       <span>{day.date}</span>
@@ -692,7 +776,10 @@ export default function Home() {
                     <div className="day-body">
                       <div className="day-heading">
                         <h3>{day.title}</h3>
-                        {day.overflow && <span className="danger-chip">超时 / 超日</span>}
+                        <div className="day-alerts">
+                          {day.nightStatus === "unassigned" && <span className="missing-chip">住宿待定</span>}
+                          {day.overflow && <span className="danger-chip">当日超载</span>}
+                        </div>
                       </div>
                       <ul>
                         {day.events.map((event, index) => <li key={index}>{event}</li>)}
@@ -701,7 +788,10 @@ export default function Home() {
                         <span>里程 <strong>{day.km} km</strong></span>
                         <span>纯驾 <strong>{day.driveHours} h</strong></span>
                         <span>当日负荷 <strong>{day.loadHours} h</strong></span>
-                        <span>住宿 <strong>{day.hotel}</strong></span>
+                        <span>
+                          {day.nightNumber ? `第 ${day.nightNumber} 晚` : "返程住宿"}
+                          <strong>{day.hotel}</strong>
+                        </span>
                       </div>
                       <div className="tag-row">
                         {day.tags.map((tag) => <span key={tag}>{tag}</span>)}
@@ -722,11 +812,14 @@ export default function Home() {
 
             <div className="summary-stats">
               <div><strong>{stats.naturalDays}</strong><span>自然日</span></div>
+              <div>
+                <strong>{stats.plannedNights}/{stats.requiredNights}</strong>
+                <span>已排/应住晚</span>
+              </div>
               <div><strong>{displayedKm}</strong><span>规划 km</span></div>
               <div><strong>{stats.driveHours}</strong><span>纯驾 h</span></div>
               <div><strong>{displayedRealHours}</strong><span>现实转场 h</span></div>
               <div><strong>{stats.playDays}</strong><span>游玩天</span></div>
-              <div><strong>{stats.hotelChanges}</strong><span>换宿次</span></div>
             </div>
 
             <div className={["buffer-meter", stats.bufferDays < 0.6 ? "danger" : stats.bufferDays < 1.2 ? "warn" : ""].join(" ")}>

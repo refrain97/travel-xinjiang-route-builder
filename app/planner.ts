@@ -32,6 +32,9 @@ export type WarningItem = {
 
 export type TripStats = {
   naturalDays: number;
+  requiredNights: number;
+  plannedNights: number;
+  nightBalance: number;
   totalKm: number;
   driveHours: number;
   realTransferHours: number;
@@ -50,6 +53,9 @@ export type DayPlan = {
   title: string;
   events: string[];
   hotel: string;
+  nightNumber: number | null;
+  nightStatus: "assigned" | "unassigned" | "none";
+  nightLocation: string;
   km: number;
   driveHours: number;
   realHours: number;
@@ -194,25 +200,37 @@ export function calculateStats(
   endId: string,
   startDate: string,
   endDate: string,
+  arrivalNights: number,
+  departureNights: number,
 ): TripStats {
   const legs = routeLegs(startId, stops, endId);
   const totalKm = legs.reduce((sum, leg) => sum + leg.km, 0);
   const driveHours = legs.reduce((sum, leg) => sum + leg.driveHours, 0);
   const realTransferHours = legs.reduce((sum, leg) => sum + leg.realHours, 0);
   const playDays = stops.reduce((sum, stop) => sum + stop.days, 0);
-  const nights = stops.reduce((sum, stop) => sum + stop.nights, 0);
-  const stayStops = stops.filter((stop) => stop.nights > 0).length;
-  const hotelChanges = Math.max(0, stayStops - 1);
   const naturalDays = naturalDayCount(startDate, endDate);
+  const requiredNights = Math.max(0, naturalDays - 1);
+  const stopNights = stops.reduce((sum, stop) => sum + stop.nights, 0);
+  const nights = Math.max(0, arrivalNights) + stopNights + Math.max(0, departureNights);
+  const stayLocations = [
+    ...(arrivalNights > 0 ? [airportById[startId].city] : []),
+    ...stops.filter((stop) => stop.nights > 0).map((stop) => placeById[stop.placeId].name),
+    ...(departureNights > 0 ? [airportById[endId].city] : []),
+  ].filter((location, index, values) => index === 0 || location !== values[index - 1]);
+  const hotelChanges = Math.max(0, stayLocations.length - 1);
   const stopCalendarDays = stops.reduce(
     (sum, stop) => sum + Math.max(stop.days, stop.nights > 0 ? stop.nights : 0),
     0,
   );
-  const allocatedDays = roundOne(1 + stopCalendarDays + realTransferHours / 10);
+  const endpointStayDays = Math.max(0, arrivalNights - 1) + Math.max(0, departureNights);
+  const allocatedDays = roundOne(1 + endpointStayDays + stopCalendarDays + realTransferHours / 10);
   const bufferDays = roundOne(naturalDays - allocatedDays);
 
   return {
     naturalDays,
+    requiredNights,
+    plannedNights: nights,
+    nightBalance: nights - requiredNights,
     totalKm,
     driveHours: roundOne(driveHours),
     realTransferHours: roundOne(realTransferHours),
@@ -232,6 +250,25 @@ export function buildWarnings(
   endId: string,
 ): WarningItem[] {
   const warnings: WarningItem[] = [];
+
+  if (stats.nightBalance < 0) {
+    warnings.push({
+      level: "high",
+      title: "还有 " + Math.abs(stats.nightBalance) + " 晚住宿没有落点",
+      detail:
+        stats.naturalDays +
+        " 个自然日固定对应 " +
+        stats.requiredNights +
+        " 晚；逐日行程会把缺少的夜晚明确标成“住宿待定”。",
+    });
+  } else if (stats.nightBalance > 0) {
+    warnings.push({
+      level: "high",
+      title: "住宿比旅行窗口多出 " + stats.nightBalance + " 晚",
+      detail:
+        "当前已排 " + stats.plannedNights + " 晚，但日期内只能容纳 " + stats.requiredNights + " 晚；需减少住宿或延长返程日期。",
+    });
+  }
 
   if (stats.bufferDays < 0) {
     warnings.push({
@@ -384,6 +421,9 @@ function createDay(startDate: string, index: number): DayPlan {
     title: "待安排",
     events: [],
     hotel: "待定",
+    nightNumber: null,
+    nightStatus: "none",
+    nightLocation: "",
     km: 0,
     driveHours: 0,
     realHours: 0,
@@ -393,151 +433,250 @@ function createDay(startDate: string, index: number): DayPlan {
   };
 }
 
+type NightAssignment = {
+  sourceId: string;
+  nodeId: string;
+  location: string;
+  hotel: string;
+};
+
+function repeatNight(assignment: NightAssignment, nights: number) {
+  return Array.from({ length: Math.max(0, nights) }, () => assignment);
+}
+
+function buildNightAssignments(
+  startId: string,
+  stops: RouteStop[],
+  endId: string,
+  requiredNights: number,
+  arrivalNights: number,
+  departureNights: number,
+) {
+  const startAirport = airportById[startId];
+  const endAirport = airportById[endId];
+  const frontAssignments: NightAssignment[] = [
+    ...repeatNight(
+      {
+        sourceId: "arrival",
+        nodeId: startId,
+        location: startAirport.city,
+        hotel: startAirport.city + "机场/市区 · 抵达住宿",
+      },
+      arrivalNights,
+    ),
+    ...stops.flatMap((stop) => {
+      const place = placeById[stop.placeId];
+      return repeatNight(
+        {
+          sourceId: "stop:" + stop.uid,
+          nodeId: stop.placeId,
+          location: place.name,
+          hotel: place.name + " · " + place.stay.split("；")[0],
+        },
+        stop.nights,
+      );
+    }),
+  ];
+  const reservedDepartureNights = Math.min(Math.max(0, departureNights), requiredNights);
+  const frontCapacity = Math.max(0, requiredNights - reservedDepartureNights);
+  const scheduledFront = frontAssignments.slice(0, frontCapacity);
+  const missingNights = Math.max(0, frontCapacity - scheduledFront.length);
+  const departureAssignments = repeatNight(
+    {
+      sourceId: "departure",
+      nodeId: endId,
+      location: endAirport.city,
+      hotel: endAirport.city + "机场/市区 · 返程前住宿",
+    },
+    reservedDepartureNights,
+  );
+
+  return [
+    ...scheduledFront,
+    ...Array.from({ length: missingNights }, () => null),
+    ...departureAssignments,
+  ] as Array<NightAssignment | null>;
+}
+
 export function generateDays(
   startId: string,
   stops: RouteStop[],
   endId: string,
   startDate: string,
   endDate: string,
+  arrivalNights: number,
+  departureNights: number,
 ): DayPlan[] {
   const naturalDays = naturalDayCount(startDate, endDate);
-  const days: DayPlan[] = [createDay(startDate, 0)];
+  const requiredNights = Math.max(0, naturalDays - 1);
+  const days: DayPlan[] = Array.from({ length: naturalDays }, (_, index) => createDay(startDate, index));
   const startAirport = airportById[startId];
   const endAirport = airportById[endId];
-  let dayIndex = 0;
+  const nightAssignments = buildNightAssignments(
+    startId,
+    stops,
+    endId,
+    requiredNights,
+    arrivalNights,
+    departureNights,
+  );
+  const plannedNights =
+    Math.max(0, arrivalNights) +
+    stops.reduce((sum, stop) => sum + stop.nights, 0) +
+    Math.max(0, departureNights);
+
+  nightAssignments.forEach((assignment, index) => {
+    const day = days[index];
+    day.nightNumber = index + 1;
+    if (assignment) {
+      day.nightStatus = "assigned";
+      day.nightLocation = assignment.location;
+      day.hotel = assignment.hotel;
+      day.tags.push("第" + (index + 1) + "晚");
+    } else {
+      day.nightStatus = "unassigned";
+      day.hotel = "第" + (index + 1) + "晚 · 住宿待定";
+      day.tags.push("住宿待定");
+    }
+  });
+  const finalDay = days[naturalDays - 1];
+  finalDay.nightNumber = null;
+  finalDay.nightStatus = "none";
+  finalDay.hotel = "返程日 · 不占住宿晚数";
+
+  const firstDayBySource = new Map<string, number>();
+  const lastDayBySource = new Map<string, number>();
+  nightAssignments.forEach((assignment, index) => {
+    if (assignment && !firstDayBySource.has(assignment.sourceId)) {
+      firstDayBySource.set(assignment.sourceId, index);
+    }
+    if (assignment) lastDayBySource.set(assignment.sourceId, index);
+  });
+  const endArrivalDay = Math.min(
+    naturalDays - 1,
+    firstDayBySource.get("departure") ?? naturalDays - 1,
+  );
+  let previousArrivalDay = 0;
+  let lastStructuredDay = lastDayBySource.get("arrival") ?? 0;
+  const stopArrivalDays = stops.map((stop, index) => {
+    const sourceId = "stop:" + stop.uid;
+    const exact = firstDayBySource.get(sourceId);
+    let target: number;
+    if (exact !== undefined) {
+      target = exact;
+    } else {
+      let nextAssignedDay = firstDayBySource.get("departure") ?? naturalDays - 1;
+      for (let nextIndex = index + 1; nextIndex < stops.length; nextIndex += 1) {
+        const next = firstDayBySource.get("stop:" + stops[nextIndex].uid);
+        if (next !== undefined) {
+          nextAssignedDay = next;
+          break;
+        }
+      }
+      target = Math.min(nextAssignedDay, lastStructuredDay + 1);
+    }
+    const resolved = Math.max(previousArrivalDay, Math.min(naturalDays - 1, target));
+    previousArrivalDay = resolved;
+    lastStructuredDay = lastDayBySource.get(sourceId) ?? resolved;
+    return resolved;
+  });
+
   let currentId = startId;
-
-  const currentDay = () => days[dayIndex];
-  const nextDay = () => {
-    dayIndex += 1;
-    if (!days[dayIndex]) days[dayIndex] = createDay(startDate, dayIndex);
-    return days[dayIndex];
-  };
-
-  currentDay().title = "西安 → " + startAirport.city + " · 进疆";
-  currentDay().events.push(
+  days[0].title = "西安 → " + startAirport.city + " · 进疆";
+  days[0].events.push(
     "西安飞 " + startAirport.code + "：具体航班、时刻与票价未接入，按出票结果回填。",
     "落地后按 2.5—3.5 小时预留取行李、取车、验车、午餐/补水。",
   );
-  currentDay().loadHours = 3.5;
-  currentDay().tags.push("航班待核", "取车日");
+  days[0].loadHours = 3.5;
+  days[0].tags.push("航班待核", "取车日");
 
-  stops.forEach((stop) => {
-    const place = placeById[stop.placeId];
-    const leg = estimateLeg(currentId, stop.placeId);
-
-    if (currentDay().loadHours > 3.8 && currentDay().loadHours + leg.realHours > 10) {
-      nextDay();
-    }
-
-    const arrivalIndex = dayIndex;
-    currentDay().title = currentDay().events.length ? currentDay().title : leg.fromName + " → " + place.name;
-    currentDay().events.push(
-      "转场 " + leg.fromName + " → " + place.name + "：约 " + leg.km + " km / 纯驾 " + leg.driveHours + " h；现实占用约 " + leg.realHours + " h。",
+  const addTransfer = (dayIndex: number, fromId: string, toId: string) => {
+    const day = days[Math.max(0, Math.min(naturalDays - 1, dayIndex))];
+    const leg = estimateLeg(fromId, toId);
+    if (leg.km === 0) return;
+    if (day.title === "待安排") day.title = leg.fromName + " → " + leg.toName;
+    day.events.push(
+      "转场 " + leg.fromName + " → " + leg.toName + "：约 " + leg.km + " km / 纯驾 " + leg.driveHours + " h；现实占用约 " + leg.realHours + " h。",
       "途中按时休息、加油/正餐；" + leg.note + "。",
     );
-    currentDay().km += leg.km;
-    currentDay().driveHours = roundOne(currentDay().driveHours + leg.driveHours);
-    currentDay().realHours = roundOne(currentDay().realHours + leg.realHours);
-    currentDay().loadHours = roundOne(currentDay().loadHours + leg.realHours);
-    currentDay().tags.push(leg.verification, leg.mode === "car" ? "自驾" : "含景交");
+    day.km += leg.km;
+    day.driveHours = roundOne(day.driveHours + leg.driveHours);
+    day.realHours = roundOne(day.realHours + leg.realHours);
+    day.loadHours = roundOne(day.loadHours + leg.realHours);
+    day.tags.push(leg.verification, leg.mode === "car" ? "自驾" : "含景交");
+  };
 
+  stops.forEach((stop, index) => {
+    const place = placeById[stop.placeId];
+    const arrivalDay = stopArrivalDays[index];
+    const nextArrivalDay = stopArrivalDays[index + 1] ?? endArrivalDay;
+    addTransfer(arrivalDay, currentId, stop.placeId);
     let playHours = stop.days * 8;
-    while (playHours > 0) {
-      const room = Math.max(0, 10 - currentDay().loadHours);
-      if (room < 2) {
-        nextDay();
-      }
-      const usable = Math.max(0, 10 - currentDay().loadHours);
-      const chunk = Math.min(playHours, usable);
-      if (chunk <= 0) {
-        nextDay();
-        continue;
-      }
-      currentDay().title = currentDay().events.length ? currentDay().title : place.name + " · 游玩";
-      currentDay().events.push(
+    const finalPlayDay = Math.max(arrivalDay, Math.min(naturalDays - 1, nextArrivalDay));
+    for (let playDay = arrivalDay; playDay <= finalPlayDay && playHours > 0; playDay += 1) {
+      const day = days[playDay];
+      const room = Math.max(0, 10 - day.loadHours);
+      const chunk = Math.min(playHours, Math.min(8, room));
+      if (chunk < 0.5) continue;
+      if (day.title === "待安排") day.title = place.name + " · 游玩";
+      day.events.push(
         place.name + " 实际游玩约 " + roundOne(chunk) + " h：" + place.play,
       );
-      currentDay().loadHours = roundOne(currentDay().loadHours + chunk);
-      currentDay().tags.push("游玩 " + roundOne(chunk) + "h");
+      day.loadHours = roundOne(day.loadHours + chunk);
+      day.tags.push("游玩 " + roundOne(chunk) + "h");
       playHours = roundOne(playHours - chunk);
     }
-
-    const activityEndIndex = dayIndex;
-    const hotelEnd = Math.max(arrivalIndex + stop.nights - 1, activityEndIndex);
-    for (let hotelDay = arrivalIndex; hotelDay <= hotelEnd; hotelDay += 1) {
-      if (!days[hotelDay]) days[hotelDay] = createDay(startDate, hotelDay);
-      days[hotelDay].hotel = place.name + " · " + place.stay.split("；")[0];
+    if (playHours > 0) {
+      const overflowDay = days[finalPlayDay];
+      overflowDay.events.push(
+        place.name + " 仍有约 " + roundOne(playHours) + " h 游玩量无法落进当前日期与住宿顺序，需要减量或增加停留晚数。",
+      );
+      overflowDay.loadHours = roundOne(overflowDay.loadHours + playHours);
+      overflowDay.tags.push("游玩未落位");
     }
-
-    const departureIndex = arrivalIndex + stop.nights;
-    while (dayIndex < departureIndex) {
-      nextDay();
-      if (currentDay().events.length === 0) {
-        currentDay().title = place.name + " · 慢住/天气缓冲";
-        currentDay().events.push("住宿夜数高于已排游玩量，这一天保留为休息、天气机动或二次游玩。")
-        currentDay().hotel = place.name + " · 连住";
-        currentDay().tags.push("缓冲日");
-        currentDay().loadHours = 2;
-      }
-    }
-
     currentId = stop.placeId;
   });
 
-  const finalLeg = estimateLeg(currentId, endId);
-  const preferredTransferIndex = Math.max(0, naturalDays - (finalLeg.realHours > 2 ? 2 : 1));
-
-  while (dayIndex < preferredTransferIndex) {
-    nextDay();
-    if (currentDay().events.length === 0 && dayIndex < preferredTransferIndex) {
-      currentDay().title = "机动缓冲 · 由你决定";
-      currentDay().events.push("这一天暂不强塞景点，可留给天气补偿、休息或把前一站玩慢一点。")
-      currentDay().hotel = dayIndex > 0 ? days[dayIndex - 1].hotel : "待定";
-      currentDay().loadHours = 2;
-      currentDay().tags.push("可用缓冲");
-    }
-  }
-
-  if (currentDay().loadHours > 3 && currentDay().loadHours + finalLeg.realHours > 10) {
-    nextDay();
-  }
-  currentDay().title = finalLeg.km > 0 ? finalLeg.fromName + " → " + endAirport.city : endAirport.city + " · 还车准备";
-  if (finalLeg.km > 0) {
-    currentDay().events.push(
-      "去离疆机场：约 " + finalLeg.km + " km / 纯驾 " + finalLeg.driveHours + " h；现实占用约 " + finalLeg.realHours + " h。",
-      "到机场城市后加满油、整理行李，按租车订单确认还车网点与营业时间。",
-    );
-    currentDay().km += finalLeg.km;
-    currentDay().driveHours = roundOne(currentDay().driveHours + finalLeg.driveHours);
-    currentDay().realHours = roundOne(currentDay().realHours + finalLeg.realHours);
-    currentDay().loadHours = roundOne(currentDay().loadHours + finalLeg.realHours);
-    currentDay().tags.push(finalLeg.verification);
-  }
-  currentDay().hotel = endAirport.city + "机场/市区 · 视航班时刻决定";
-
-  while (dayIndex < naturalDays - 1) {
-    nextDay();
-    currentDay().title = endAirport.city + " · 返程缓冲";
-    currentDay().events.push("把这一天留给还车与航班衔接；若前段天气正常，可用于低强度城市活动。")
-    currentDay().hotel = "返程日不固定住宿";
-    currentDay().tags.push("返程缓冲");
-  }
-
-  if (currentDay().loadHours > 7) nextDay();
-  currentDay().title = endAirport.city + " → 西安 · 离疆";
-  currentDay().events.push(
+  addTransfer(endArrivalDay, currentId, endId);
+  finalDay.title = endAirport.city + " → 西安 · 离疆";
+  finalDay.events.push(
     "在 " + endAirport.code + " 还车并飞回西安：具体航班、值机截止与票价待实时查询。",
     "国内航班建议至少预留 2.5—3 小时完成加油、还车、接驳、托运与安检。",
   );
-  currentDay().loadHours = roundOne(currentDay().loadHours + 3);
-  currentDay().tags.push("航班待核", startId === endId ? "同地还车" : "异地还车待核");
+  finalDay.loadHours = roundOne(finalDay.loadHours + 3);
+  finalDay.tags.push("航班待核", startId === endId ? "同地还车" : "异地还车待核");
 
-  return days.map((day) => ({
-    ...day,
-    overflow: day.loadHours > 10 || day.day > naturalDays,
-    tags: Array.from(new Set(day.tags)),
-  }));
+  if (plannedNights > requiredNights) {
+    finalDay.events.unshift(
+      "当前住宿比日期容量多出 " + (plannedNights - requiredNights) + " 晚，这部分无法放进 Day 1—Day " + naturalDays + "。",
+    );
+    finalDay.tags.push("住宿超出");
+  }
+
+  return days.map((day) => {
+    if (day.nightStatus === "unassigned") {
+      day.events.push(
+        "今晚住宿尚未分配：请在上方增加抵达住宿、景点住宿或返程前住宿，不能把这一晚自动藏掉。",
+      );
+    }
+    if (day.events.length === 0) {
+      if (day.nightStatus === "assigned") {
+        day.title = day.nightLocation + " · 连住/天气缓冲";
+        day.events.push("今晚继续住在 " + day.nightLocation + "，白天保留给休息、天气补偿或把当前景点玩慢一点。");
+        day.loadHours = 2;
+        day.tags.push("缓冲日");
+      } else {
+        day.title = "第" + day.nightNumber + "晚住宿待定";
+      }
+    } else if (day.title === "待安排") {
+      day.title = day.nightStatus === "assigned" ? day.nightLocation + " · 当日安排" : "住宿待定 · 当日安排";
+    }
+    return {
+      ...day,
+      overflow: day.loadHours > 10 || (plannedNights > requiredNights && day.day === naturalDays),
+      tags: Array.from(new Set(day.tags)),
+    };
+  });
 }
 
 export function buildTextSummary(
@@ -556,6 +695,7 @@ export function buildTextSummary(
     "新疆自由拼盘路线（规划估算）",
     "路线：" + route,
     "合计：" + stats.naturalDays + " 天 / 约 " + stats.totalKm + " km / 纯驾 " + stats.driveHours + " h / 现实转场 " + stats.realTransferHours + " h",
+    "住宿：已安排 " + stats.plannedNights + " / " + stats.requiredNights + " 晚" + (stats.nightBalance === 0 ? "（已对齐）" : stats.nightBalance < 0 ? "（缺 " + Math.abs(stats.nightBalance) + " 晚）" : "（多 " + stats.nightBalance + " 晚）"),
     "说明：未接入实时航班、导航或租车接口，动态信息须在出发前复核。",
     "",
   ];

@@ -27,6 +27,10 @@ test("server-renders the Xinjiang route builder", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
+  const visibleText = html
+    .replace(/<!--.*?-->/g, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
   assert.match(html, /新疆自由拼盘/);
   assert.match(html, /任意选择进疆与离疆机场/);
   assert.match(html, /北疆真实公路地图/);
@@ -36,6 +40,12 @@ test("server-renders the Xinjiang route builder", async () => {
   assert.match(html, /Day 1/);
   assert.match(html, /未接入实时航班/);
   assert.match(html, /og\.png/);
+  assert.match(visibleText, /9 天固定 8 晚/);
+  assert.match(visibleText, /已安排 6 \/ 8 晚 · 还缺 2 晚/);
+  assert.match(visibleText, /第 1 晚 阿勒泰/);
+  assert.match(visibleText, /住宿待定/);
+  assert.match(visibleText, /全屏查看/);
+  assert.match(visibleText, /Day 1—Day 9 逐日行程/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton|SkeletonPreview/);
 });
 
@@ -52,12 +62,17 @@ test("keeps planning boundaries, real map data, and local plan management in sou
   assert.match(page, /reverseRoute/);
   assert.match(page, /window\.print/);
   assert.match(page, /异地还车/);
+  assert.match(page, /arrivalNights/);
+  assert.match(page, /departureNights/);
   assert.match(data, /动态待核验/);
   assert.match(planner, /generateDays/);
+  assert.match(planner, /requiredNights/);
+  assert.match(planner, /nightStatus/);
   assert.match(planner, /compareCarReturn/);
   assert.match(routeMap, /tile\.openstreetmap\.org/);
   assert.match(routeMap, /router\.project-osrm\.org/);
   assert.match(routeMap, /control\.scale/);
+  assert.match(routeMap, /全屏查看地图/);
   assert.match(data, /自驾锚点：贾登峪入口/);
   assert.match(data, /自驾锚点：赛里木湖东门游客中心/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

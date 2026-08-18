@@ -34,6 +34,11 @@ body {
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
 }
 
+body.map-expanded-lock {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 button,
 input,
 select {
@@ -712,12 +717,52 @@ input:focus {
   box-shadow: inset 0 0 0 5px rgba(255, 255, 255, 0.42);
 }
 
+.geo-map-shell.expanded {
+  position: fixed;
+  z-index: 9999;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .geo-map {
   z-index: 0;
   width: 100%;
   height: 560px;
   min-height: 460px;
   background: #d9e6e0;
+}
+
+.geo-map-shell.expanded .geo-map {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.geo-map-expand {
+  position: absolute;
+  z-index: 1100;
+  top: 88px;
+  right: 10px;
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid rgba(20, 60, 51, 0.28);
+  border-radius: 8px;
+  color: var(--pine);
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 6px 16px rgba(20, 60, 51, 0.16);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.geo-map-expand span {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .geo-map-status {
@@ -1447,6 +1492,179 @@ input:focus {
   background: var(--lime-soft);
 }
 
+.night-ledger {
+  margin-bottom: 12px;
+  padding: 15px;
+  border: 1px solid #d9c6a2;
+  border-radius: 13px;
+  background: #fff9ed;
+}
+
+.night-ledger.aligned {
+  border-color: #a8c8bc;
+  background: #f0f6ef;
+}
+
+.night-ledger-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.night-ledger-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.night-ledger-head span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.night-ledger-head strong {
+  font-size: 18px;
+  letter-spacing: -0.03em;
+}
+
+.night-ledger-head p {
+  margin: 0;
+  color: #7b5831;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.night-ledger.aligned .night-ledger-head p {
+  color: var(--pine);
+}
+
+.night-progress {
+  height: 5px;
+  margin: 11px 0;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #eadfc9;
+}
+
+.night-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--amber);
+}
+
+.night-ledger.aligned .night-progress span {
+  background: var(--pine);
+}
+
+.night-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.night-slot {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid #cbd9d4;
+  border-radius: 8px;
+  background: white;
+}
+
+.night-slot b {
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.night-slot em {
+  overflow: hidden;
+  color: var(--pine-dark);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.night-slot.missing {
+  border-color: #dfaa9e;
+  border-style: dashed;
+  background: #fff4f0;
+}
+
+.night-slot.missing em {
+  color: #9a493a;
+}
+
+.endpoint-stays {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 16px;
+}
+
+.endpoint-stay-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--coral);
+  border-radius: 10px;
+  background: #fbfaf5;
+}
+
+.endpoint-stay-card.departure {
+  border-left-color: var(--pine);
+}
+
+.endpoint-stay-card > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.endpoint-stay-card span,
+.endpoint-stay-card small {
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.endpoint-stay-card strong {
+  font-size: 13px;
+}
+
+.endpoint-stepper {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.endpoint-stepper button {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--pine);
+  background: var(--blue-soft);
+  font-size: 13px;
+}
+
+.endpoint-stepper strong {
+  min-width: 38px;
+  text-align: center;
+  font-size: 10px;
+}
+
 .route-chain {
   position: relative;
   display: grid;
@@ -1730,6 +1948,11 @@ input:focus {
   background: #fff8f6;
 }
 
+.day-card.missing-night:not(.overflow) {
+  border-color: #d9bd82;
+  background: #fffaf0;
+}
+
 .day-date {
   display: grid;
   align-content: start;
@@ -1741,6 +1964,10 @@ input:focus {
 
 .day-card.overflow .day-date {
   background: var(--coral);
+}
+
+.day-card.missing-night:not(.overflow) .day-date {
+  background: #9a6b2e;
 }
 
 .day-date strong {
@@ -1775,12 +2002,30 @@ input:focus {
   font-size: 14px;
 }
 
+.day-alerts {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
 .danger-chip {
   flex: 0 0 auto;
   padding: 4px 6px;
   border-radius: 4px;
   color: #7d3d31;
   background: var(--coral-soft);
+  font-size: 7px;
+  font-weight: 900;
+}
+
+.missing-chip {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: #75501f;
+  background: var(--amber-soft);
   font-size: 7px;
   font-weight: 900;
 }
@@ -1800,6 +2045,8 @@ input:focus {
 }
 
 .day-meta > span {
+  display: grid;
+  gap: 2px;
   padding: 5px 7px;
   background: #f2f2eb;
   color: var(--muted);
@@ -2543,6 +2790,18 @@ footer p {
     padding: 7px 9px;
   }
 
+  .geo-map-expand {
+    top: 86px;
+    right: 8px;
+    min-height: 38px;
+    padding: 0 9px;
+    font-size: 9px;
+  }
+
+  .geo-map-shell.expanded .geo-map-status {
+    top: max(8px, env(safe-area-inset-top));
+  }
+
   .geo-map-caption {
     display: grid;
     gap: 3px;
@@ -2660,6 +2919,32 @@ footer p {
 
   .tile-action {
     width: 100%;
+  }
+
+  .night-ledger {
+    padding: 12px;
+  }
+
+  .night-ledger-head {
+    display: grid;
+    align-items: start;
+    gap: 5px;
+  }
+
+  .night-slots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .night-slot {
+    padding: 7px;
+  }
+
+  .endpoint-stays {
+    grid-template-columns: 1fr;
+  }
+
+  .endpoint-stay-card {
+    padding: 11px;
   }
 
   .stop-card {

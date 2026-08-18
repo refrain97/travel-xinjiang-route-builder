@@ -130,6 +130,7 @@ export default function RouteMap({
   const [ready, setReady] = useState(false);
   const [basemapError, setBasemapError] = useState(false);
   const [roadState, setRoadState] = useState<RoadState>({ status: "idle" });
+  const [expanded, setExpanded] = useState(false);
 
   const signature = useMemo(() => routeSignature(routeNodes), [routeNodes]);
 
@@ -138,6 +139,20 @@ export default function RouteMap({
     placeSelectRef.current = onPlaceSelect;
     estimateRef.current = onRouteEstimate;
   }, [onAirportSelect, onPlaceSelect, onRouteEstimate]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpanded(false);
+    };
+    document.body.classList.toggle("map-expanded-lock", expanded);
+    window.addEventListener("keydown", closeOnEscape);
+    const timer = window.setTimeout(() => mapRef.current?.invalidateSize(false), 40);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("keydown", closeOnEscape);
+      document.body.classList.remove("map-expanded-lock");
+    };
+  }, [expanded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -397,8 +412,18 @@ export default function RouteMap({
 
   return (
     <div className="geo-map-block">
-      <div className="geo-map-shell">
+      <div className={["geo-map-shell", expanded ? "expanded" : ""].join(" ")}>
         <div ref={containerRef} className="geo-map" aria-label="按真实经纬度和公路绘制的北疆路线地图" />
+        <button
+          className="geo-map-expand"
+          type="button"
+          aria-label={expanded ? "退出地图全屏" : "全屏查看地图"}
+          aria-pressed={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span aria-hidden="true">{expanded ? "↙" : "↗"}</span>
+          {expanded ? "退出全屏" : "全屏查看"}
+        </button>
         <div className={`geo-map-status status-${roadState.status}`} aria-live="polite">
           <span>{roadState.status === "ready" ? "公路线路已绘制" : "线路状态"}</span>
           <strong>{statusText}</strong>
