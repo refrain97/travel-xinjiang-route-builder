@@ -16,6 +16,7 @@ import {
   compareCarReturn,
   generateDays,
 } from "./planner";
+import RouteMap, { type RoadRouteEstimate } from "./route-map";
 
 type CarMode = "compare" | "same" | "oneway";
 
@@ -67,6 +68,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [dayExpanded, setDayExpanded] = useState(true);
   const [mapMode, setMapMode] = useState<"explore" | "route">("explore");
+  const [roadEstimate, setRoadEstimate] = useState<RoadRouteEstimate | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -98,6 +100,7 @@ export default function Home() {
     [stats, stops, startId, endId],
   );
   const carComparison = useMemo(() => compareCarReturn(startId, endId), [startId, endId]);
+  const routeLegModes = useMemo(() => stats.legs.map((leg) => leg.mode), [stats.legs]);
   const days = useMemo(
     () => generateDays(startId, stops, endId, startDate, endDate),
     [startId, stops, endId, startDate, endDate],
@@ -122,6 +125,15 @@ export default function Home() {
   const routeLabel = routeNodes
     .map((node) => ("code" in node ? node.city + "机场" : node.name))
     .join(" → ");
+  const roadEstimateMatches = Boolean(
+    roadEstimate &&
+      roadEstimate.legs.length === stats.legs.length &&
+      roadEstimate.legs.every(
+        (leg, index) =>
+          leg.fromId === stats.legs[index]?.fromId && leg.toId === stats.legs[index]?.toId,
+      ),
+  );
+  const mapTotalKm = roadEstimateMatches && roadEstimate ? roadEstimate.totalKm : stats.totalKm;
   const displayedKm =
     stats.totalKm + (carMode === "same" ? carComparison.sameReturn.extraKm : 0);
   const displayedRealHours =
@@ -269,15 +281,6 @@ export default function Home() {
     }
   };
 
-  const mapOrder = (id: string, kind: "airport" | "place") => {
-    const indexes = routeNodes
-      .map((node, index) => ({ node, index }))
-      .filter(({ node }) => node.id === id && node.kind === kind)
-      .map(({ index }) => index + 1);
-    if (!indexes.length) return "";
-    return indexes.join("/");
-  };
-
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -285,7 +288,7 @@ export default function Home() {
           <span className="brand-mark">疆</span>
           <span>
             新疆自由拼盘
-            <small>Route Builder · V1</small>
+            <small>Route Builder · V2</small>
           </span>
         </a>
         <nav className="top-actions" aria-label="方案操作">
@@ -417,13 +420,14 @@ export default function Home() {
             <div className="section-head">
               <div>
                 <p className="section-kicker">STEP 2 · 地图点选</p>
-                <h2>北疆决策地图 · 按顺序加点</h2>
-                <p>先看三个区域的相对位置，再沿橙色路线检查顺序、车程与回头路。</p>
+                <h2>北疆真实公路地图 · 按顺序加点</h2>
+                <p>地点按真实经纬度定位，橙线沿公路绘制；可缩放查看国道、省道和景区入口。</p>
               </div>
               <div className="legend">
                 <span><i className="legend-dot airport-dot" />进出机场</span>
                 <span><i className="legend-dot place-dot" />可加地点</span>
-                <span><i className="legend-line" />已选顺序</span>
+                <span><i className="legend-line" />自驾公路</span>
+                <span><i className="legend-line mixed" />景交/接驳</span>
               </div>
             </div>
 
@@ -461,7 +465,9 @@ export default function Home() {
             <div className="map-route-overview" aria-label="当前路线顺序">
               <span className="route-overview-title">
                 当前路线
-                <small>{stops.length} 个游玩节点 · 约 {stats.totalKm} km</small>
+                <small>
+                  {stops.length} 个游玩节点 · {roadEstimateMatches ? "公路约" : "资料约"} {mapTotalKm} km
+                </small>
               </span>
               <ol>
                 <li className="airport-step"><b>进</b>{airportById[startId].city}</li>
@@ -472,137 +478,46 @@ export default function Home() {
               </ol>
             </div>
 
-            <div className="map-scroll">
-              <div className={["map-canvas", "map-mode-" + mapMode].join(" ")} aria-label="北疆路线空间示意图">
-                <div className={region === "全部" || region === "阿勒泰" ? "map-zone zone-altay active" : "map-zone zone-altay"}>
-                  <span>阿勒泰秋色区</span>
-                  <small>喀纳斯 · 禾木 · 白哈巴</small>
-                </div>
-                <div className={region === "全部" || region === "乌鲁木齐周边" ? "map-zone zone-corridor active" : "map-zone zone-corridor"}>
-                  <span>北疆转场走廊</span>
-                  <small>克拉玛依 · 乌鲁木齐</small>
-                </div>
-                <div className={region === "全部" || region === "伊犁" ? "map-zone zone-ili active" : "map-zone zone-ili"}>
-                  <span>伊犁河谷</span>
-                  <small>赛里木湖 · 夏塔 · 那拉提</small>
-                </div>
-                <div className="mountain-belt" aria-hidden="true"><span>天山山脉方向</span></div>
-                <div className="map-compass" aria-hidden="true"><b>↑</b><span>北</span></div>
-                {routeNodes.slice(0, -1).map((node, index) => {
-                  const next = routeNodes[index + 1];
-                  const dx = next.x - node.x;
-                  const dy = next.y - node.y;
-                  const length = Math.sqrt(dx * dx + dy * dy);
-                  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                  const leg = stats.legs[index];
-                  return (
-                    <span className="route-segment" key={node.id + "-" + next.id + "-" + index}>
-                      <i
-                        className="route-line route-line-shadow"
-                        style={{
-                          left: node.x + "%",
-                          top: node.y + "%",
-                          width: length + "%",
-                          transform: "rotate(" + angle + "deg)",
-                        }}
-                      />
-                      <i
-                        className="route-line"
-                        style={{
-                          left: node.x + "%",
-                          top: node.y + "%",
-                          width: length + "%",
-                          transform: "rotate(" + angle + "deg)",
-                        }}
-                      />
-                      <span
-                        className="route-leg-marker"
-                        style={{ left: (node.x + next.x) / 2 + "%", top: (node.y + next.y) / 2 + "%" }}
-                      >
-                        <b>{index + 1}</b>
-                        {leg && <small>{leg.km}km</small>}
-                      </span>
-                    </span>
-                  );
-                })}
-                {airports.map((airport) => {
-                  const order = mapOrder(airport.id, "airport");
-                  const role = startId === airport.id && endId === airport.id
-                    ? "往返"
-                    : startId === airport.id
-                      ? "进"
-                      : endId === airport.id
-                        ? "出"
-                        : "";
-                  return (
-                    <button
-                      className={[
-                        "map-node",
-                        "airport-node",
-                        order ? "selected" : "",
-                        role ? "role-" + role : "",
-                        airport.y > 82 ? "edge-bottom" : "",
-                        airport.x < 18 ? "edge-left" : "",
-                        airport.x > 78 ? "edge-right" : "",
-                      ].join(" ")}
-                      key={airport.id}
-                      style={{ left: airport.x + "%", top: airport.y + "%" }}
-                      type="button"
-                      onClick={() => setStartId(airport.id)}
-                      title={role ? airport.name + " · 当前" + role + "机场" : "点击设为进疆机场：" + airport.name}
-                      aria-label={role ? airport.name + "，当前" + role + "机场" : "将" + airport.name + "设为进疆机场"}
-                    >
-                      {role && <b>{role}</b>}
-                      <span>{airport.code}</span>
-                      <small>{airport.city}</small>
-                    </button>
-                  );
-                })}
-                {places.map((place) => {
-                  const selected = selectedPlaceIds.has(place.id);
-                  const order = mapOrder(place.id, "place");
-                  const outsideRegion = region !== "全部" && region !== place.region && !selected;
-                  const routeHidden = mapMode === "route" && !selected;
-                  return (
-                    <button
-                      className={[
-                        "map-node",
-                        "place-node",
-                        selected ? "selected" : "",
-                        outsideRegion ? "outside-region" : "",
-                        routeHidden ? "route-hidden" : "",
-                        place.y > 82 ? "edge-bottom" : "",
-                        place.x < 18 ? "edge-left" : "",
-                        place.x > 78 ? "edge-right" : "",
-                      ].join(" ")}
-                      key={place.id}
-                      style={{ left: place.x + "%", top: place.y + "%" }}
-                      type="button"
-                      onClick={() => (selected ? setDetailId(place.id) : addPlace(place.id))}
-                      aria-pressed={selected}
-                      aria-label={selected ? place.name + "，已加入，点击查看详情" : "将" + place.name + "加入路线"}
-                    >
-                      {order && <b>{Math.max(1, Number(order) - 1)}</b>}
-                      <span>{selected ? "✓" : "+"}</span>
-                      <small>{place.name}</small>
-                    </button>
-                  );
-                })}
-                <div className="map-scale-note">空间位置经过压缩 · 橙线不等于真实道路</div>
-              </div>
-            </div>
+            <RouteMap
+              airports={airports}
+              places={places}
+              routeNodes={routeNodes}
+              legModes={routeLegModes}
+              region={region}
+              mode={mapMode}
+              onAirportSelect={(airportId) => {
+                setStartId(airportId);
+                notify(airportById[airportId].city + "已设为进疆机场");
+              }}
+              onPlaceSelect={(placeId) =>
+                selectedPlaceIds.has(placeId) ? setDetailId(placeId) : addPlace(placeId)
+              }
+              onRouteEstimate={setRoadEstimate}
+            />
 
             <div className="map-leg-strip" aria-label="当前路线分段车程">
-              {stats.legs.map((leg, index) => (
-                <article className={leg.fallback ? "needs-check" : ""} key={leg.fromId + "-" + leg.toId + "-" + index}>
-                  <span>{index + 1}</span>
-                  <div>
-                    <strong>{leg.fromName} → {leg.toName}</strong>
-                    <small>{leg.km} km · 纯驾驶 {leg.driveHours}h · 现实转场约 {leg.realHours}h</small>
-                  </div>
-                  <em>{leg.fallback ? "待导航" : "资料估算"}</em>
-                </article>
-              ))}
+              {stats.legs.map((leg, index) => {
+                const roadLeg = roadEstimateMatches ? roadEstimate?.legs[index] : null;
+                return (
+                  <article className={!roadLeg && leg.fallback ? "needs-check" : ""} key={leg.fromId + "-" + leg.toId + "-" + index}>
+                    <span>{index + 1}</span>
+                    <div>
+                      <strong>{leg.fromName} → {leg.toName}</strong>
+                      <small>
+                        {roadLeg
+                          ? `${roadLeg.km} km · 公路模型 ${roadLeg.hours}h · 行程预留约 ${leg.realHours}h`
+                          : `${leg.km} km · 纯驾驶 ${leg.driveHours}h · 现实转场约 ${leg.realHours}h`}
+                      </small>
+                      {roadLeg && (
+                        <small className="road-refs">
+                          主要道路：{roadLeg.roads.length ? roadLeg.roads.join(" · ") : "道路编号未标注"}
+                        </small>
+                      )}
+                    </div>
+                    <em>{roadLeg ? "公路拟合" : leg.fallback ? "待导航" : "资料估算"}</em>
+                  </article>
+                );
+              })}
             </div>
 
             <div className="place-library">

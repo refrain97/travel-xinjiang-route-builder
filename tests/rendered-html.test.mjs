@@ -29,20 +29,22 @@ test("server-renders the Xinjiang route builder", async () => {
   const html = await response.text();
   assert.match(html, /新疆自由拼盘/);
   assert.match(html, /任意选择进疆与离疆机场/);
-  assert.match(html, /北疆决策地图/);
+  assert.match(html, /北疆真实公路地图/);
   assert.match(html, /只看已选路线/);
-  assert.match(html, /空间位置经过压缩/);
+  assert.match(html, /等比例地图/);
+  assert.match(html, /OpenStreetMap/);
   assert.match(html, /Day 1/);
   assert.match(html, /未接入实时航班/);
   assert.match(html, /og\.png/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton|SkeletonPreview/);
 });
 
-test("keeps planning boundaries and local plan management in source", async () => {
-  const [page, data, planner, packageJson] = await Promise.all([
+test("keeps planning boundaries, real map data, and local plan management in source", async () => {
+  const [page, data, planner, routeMap, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/planner.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/route-map.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
@@ -53,5 +55,10 @@ test("keeps planning boundaries and local plan management in source", async () =
   assert.match(data, /动态待核验/);
   assert.match(planner, /generateDays/);
   assert.match(planner, /compareCarReturn/);
+  assert.match(routeMap, /tile\.openstreetmap\.org/);
+  assert.match(routeMap, /router\.project-osrm\.org/);
+  assert.match(routeMap, /control\.scale/);
+  assert.match(data, /自驾锚点：贾登峪入口/);
+  assert.match(data, /自驾锚点：赛里木湖东门游客中心/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
