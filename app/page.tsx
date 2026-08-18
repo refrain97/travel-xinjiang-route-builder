@@ -142,6 +142,10 @@ export default function Home() {
     stats.totalKm + (carMode === "same" ? carComparison.sameReturn.extraKm : 0);
   const displayedRealHours =
     stats.realTransferHours + (carMode === "same" ? carComparison.sameReturn.extraHours : 0);
+  const displayedPlannedHours =
+    Math.round((stats.plannedHours + (carMode === "same" ? carComparison.sameReturn.extraHours : 0)) * 10) / 10;
+  const displayedBufferDays =
+    Math.round(((stats.capacityHours - displayedPlannedHours) / 10) * 10) / 10;
 
   const notify = (message: string) => {
     setToast(message);
@@ -178,9 +182,21 @@ export default function Home() {
       current.map((stop) => {
         if (stop.uid !== uid) return stop;
         if (key === "days") {
-          return { ...stop, days: Math.max(0.5, Math.min(4, Math.round((stop.days + delta) * 2) / 2)) };
+          return { ...stop, days: Math.max(0, Math.min(4, Math.round((stop.days + delta) * 2) / 2)) };
         }
         return { ...stop, nights: Math.max(0, Math.min(4, stop.nights + delta)) };
+      }),
+    );
+  };
+
+  const toggleStopMode = (uid: string) => {
+    setStops((current) =>
+      current.map((stop) => {
+        if (stop.uid !== uid) return stop;
+        if (stop.days === 0) {
+          return { ...stop, days: placeById[stop.placeId].recommendedDays };
+        }
+        return { ...stop, days: 0, nights: Math.max(1, stop.nights) };
       }),
     );
   };
@@ -638,7 +654,7 @@ export default function Home() {
               {stops.map((stop, index) => {
                 const place = placeById[stop.placeId];
                 return (
-                  <article className="stop-card" key={stop.uid}>
+                  <article className={stop.days === 0 ? "stop-card is-layover" : "stop-card"} key={stop.uid}>
                     <div className="stop-top">
                       <button className="stop-name" type="button" onClick={() => setDetailId(place.id)}>
                         <span>{index + 1}</span>
@@ -653,7 +669,7 @@ export default function Home() {
                     </div>
                     <div className="stepper-grid">
                       <div className="stepper">
-                        <span>实际游玩</span>
+                        <span>景区游玩</span>
                         <div>
                           <button type="button" onClick={() => updateStop(stop.uid, "days", -0.5)}>−</button>
                           <strong>{stop.days} 天</strong>
@@ -669,12 +685,22 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
+                    <div className={stop.days === 0 ? "stop-mode-row layover" : "stop-mode-row"}>
+                      <span>{stop.days === 0 ? "仅中转落脚" : "游玩停留"}</span>
+                      <button type="button" onClick={() => toggleStopMode(stop.uid)}>
+                        {stop.days === 0 ? "恢复建议游玩" : "设为仅落脚"}
+                      </button>
+                    </div>
                     <p className="stop-decision">
-                      {stop.days < place.recommendedDays
-                        ? "压缩玩法：需主动舍弃部分内容"
-                        : stop.nights >= 2
-                          ? "连住型：有早晚光线或天气容错"
-                          : "标准停留：按区间车与排队再复核"}
+                      {stop.days === 0
+                        ? stop.nights > 0
+                          ? "中转落脚：只休息和补给，次日继续走，不计景区游玩时间"
+                          : "仅途经：不游玩也不住宿，只保留为路线节点"
+                        : stop.days < place.recommendedDays
+                          ? "压缩玩法：需主动舍弃部分内容"
+                          : stop.nights >= 2
+                            ? "连住型：有早晚光线或天气容错"
+                            : "标准停留：按区间车与排队再复核"}
                     </p>
                   </article>
                 );
@@ -822,15 +848,26 @@ export default function Home() {
               <div><strong>{stats.playDays}</strong><span>游玩天</span></div>
             </div>
 
-            <div className={["buffer-meter", stats.bufferDays < 0.6 ? "danger" : stats.bufferDays < 1.2 ? "warn" : ""].join(" ")}>
+            <div className={["buffer-meter", displayedBufferDays < 0 ? "danger" : displayedBufferDays < 1 ? "warn" : ""].join(" ")}>
               <div>
-                <span>粗算缓冲</span>
-                <strong>{stats.bufferDays >= 0 ? stats.bufferDays : "−" + Math.abs(stats.bufferDays)} 天</strong>
+                <span>全程时间总量余量</span>
+                <strong>
+                  {displayedBufferDays >= 0 ? "+" + displayedBufferDays : "−" + Math.abs(displayedBufferDays)} 天
+                </strong>
               </div>
               <div className="meter-track">
-                <span style={{ width: Math.max(4, Math.min(100, ((stats.bufferDays + 1) / 4) * 100)) + "%" }} />
+                <span
+                  style={{
+                    width:
+                      Math.max(4, Math.min(100, (displayedPlannedHours / stats.capacityHours) * 100)) + "%",
+                  }}
+                />
               </div>
-              <small>分配约 {stats.allocatedDays} 天；按每日 10 小时有效窗口粗排。</small>
+              <small>
+                已用约 {displayedPlannedHours} / {stats.capacityHours} h：现实转场 {displayedRealHours} h
+                ＋游玩/连住占用 {stats.stayHours} h＋机场流程 {stats.airportHours} h。
+              </small>
+              <p>住宿只决定睡在哪里，不会按“一晚＝一天”重复扣时；同地第 2 晚起形成的完整停留日才占用时间。</p>
             </div>
 
             <div className="warning-list">

@@ -41,6 +41,10 @@ export type TripStats = {
   playDays: number;
   nights: number;
   hotelChanges: number;
+  capacityHours: number;
+  plannedHours: number;
+  stayHours: number;
+  airportHours: number;
   allocatedDays: number;
   bufferDays: number;
   legs: LegEstimate[];
@@ -82,6 +86,9 @@ export type CarComparison = {
 type AnyNode = (Airport | Place) & { kind: "airport" | "place" };
 
 const roundOne = (value: number) => Math.round(value * 10) / 10;
+const effectiveDayHours = 10;
+const arrivalProcessHours = 3.5;
+const departureProcessHours = 3;
 
 function getNode(id: string): AnyNode {
   if (airportById[id]) return { ...airportById[id], kind: "airport" } as AnyNode;
@@ -218,13 +225,24 @@ export function calculateStats(
     ...(departureNights > 0 ? [airportById[endId].city] : []),
   ].filter((location, index, values) => index === 0 || location !== values[index - 1]);
   const hotelChanges = Math.max(0, stayLocations.length - 1);
-  const stopCalendarDays = stops.reduce(
-    (sum, stop) => sum + Math.max(stop.days, stop.nights > 0 ? stop.nights : 0),
+  const stopStayHours = stops.reduce(
+    (sum, stop) =>
+      sum +
+      Math.max(
+        stop.days * 8,
+        Math.max(0, stop.nights - 1) * effectiveDayHours,
+      ),
     0,
   );
-  const endpointStayDays = Math.max(0, arrivalNights - 1) + Math.max(0, departureNights);
-  const allocatedDays = roundOne(1 + endpointStayDays + stopCalendarDays + realTransferHours / 10);
-  const bufferDays = roundOne(naturalDays - allocatedDays);
+  const endpointStayHours =
+    (Math.max(0, arrivalNights - 1) + Math.max(0, departureNights - 1)) *
+    effectiveDayHours;
+  const stayHours = roundOne(stopStayHours + endpointStayHours);
+  const airportHours = roundOne(arrivalProcessHours + departureProcessHours);
+  const capacityHours = roundOne(naturalDays * effectiveDayHours);
+  const plannedHours = roundOne(realTransferHours + stayHours + airportHours);
+  const allocatedDays = roundOne(plannedHours / effectiveDayHours);
+  const bufferDays = roundOne((capacityHours - plannedHours) / effectiveDayHours);
 
   return {
     naturalDays,
@@ -237,6 +255,10 @@ export function calculateStats(
     playDays: roundOne(playDays),
     nights,
     hotelChanges,
+    capacityHours,
+    plannedHours,
+    stayHours,
+    airportHours,
     allocatedDays,
     bufferDays,
     legs,
@@ -273,20 +295,23 @@ export function buildWarnings(
   if (stats.bufferDays < 0) {
     warnings.push({
       level: "high",
-      title: "已经超出可用日期",
-      detail: "粗排超出 " + Math.abs(stats.bufferDays) + " 天。先删点、减游玩或改航班日期。",
+      title: "全程时间总量已经超出",
+      detail:
+        "驾驶、游玩/连住和机场流程合计超出约 " +
+        Math.abs(stats.bufferDays) +
+        " 天。住宿一晚本身没有重复扣白天。",
     });
   } else if (stats.bufferDays < 0.6) {
     warnings.push({
       level: "high",
-      title: "几乎没有天气缓冲",
-      detail: "北疆 9 月的降温、雨雪、排队或航班变化都可能打乱整条路线。",
+      title: "全程总量几乎没有余量",
+      detail: "这是全程合计值；逐日是否能落下，还要继续看下方是否出现红色超载卡片。",
     });
   } else if (stats.bufferDays < 1.2) {
     warnings.push({
       level: "medium",
-      title: "缓冲只有约半天到一天",
-      detail: "建议先明确一个天气差时可主动删除的节点。",
+      title: "全程总量余量不足约一天",
+      detail: "建议先明确一个天气差时可主动删除的游玩节点；仅中转落脚点不必删除。",
     });
   }
 
@@ -315,7 +340,7 @@ export function buildWarnings(
 
   stops.forEach((stop) => {
     const place = placeById[stop.placeId];
-    if (stop.days < place.recommendedDays) {
+    if (stop.days > 0 && stop.days < place.recommendedDays) {
       warnings.push({
         level: "info",
         title: place.name + " 采用压缩玩法",
@@ -611,6 +636,16 @@ export function generateDays(
     const arrivalDay = stopArrivalDays[index];
     const nextArrivalDay = stopArrivalDays[index + 1] ?? endArrivalDay;
     addTransfer(arrivalDay, currentId, stop.placeId);
+    if (stop.days === 0) {
+      const arrival = days[arrivalDay];
+      if (arrival.title === "待安排") arrival.title = place.name + " · 中转落脚";
+      arrival.events.push(
+        stop.nights > 0
+          ? place.name + "仅作为中转住宿：到达后休息、补给，次日继续出发，不计景区游玩时间。"
+          : place.name + "仅作为途经节点：不安排景区游玩，也不在此住宿。",
+      );
+      arrival.tags.push(stop.nights > 0 ? "仅落脚" : "仅途经");
+    }
     let playHours = stop.days * 8;
     const finalPlayDay = Math.max(arrivalDay, Math.min(naturalDays - 1, nextArrivalDay));
     for (let playDay = arrivalDay; playDay <= finalPlayDay && playHours > 0; playDay += 1) {
@@ -696,6 +731,7 @@ export function buildTextSummary(
     "路线：" + route,
     "合计：" + stats.naturalDays + " 天 / 约 " + stats.totalKm + " km / 纯驾 " + stats.driveHours + " h / 现实转场 " + stats.realTransferHours + " h",
     "住宿：已安排 " + stats.plannedNights + " / " + stats.requiredNights + " 晚" + (stats.nightBalance === 0 ? "（已对齐）" : stats.nightBalance < 0 ? "（缺 " + Math.abs(stats.nightBalance) + " 晚）" : "（多 " + stats.nightBalance + " 晚）"),
+    "时间总量：已用约 " + stats.plannedHours + " / " + stats.capacityHours + " 小时，余量约 " + stats.bufferDays + " 天；单纯住宿一晚不另扣白天。",
     "说明：未接入实时航班、导航或租车接口，动态信息须在出发前复核。",
     "",
   ];

@@ -1718,6 +1718,15 @@ input:focus {
   background: #fbfaf5;
 }
 
+.stop-card.is-layover {
+  border-color: #b8d1ce;
+  background: #f3f8f6;
+}
+
+.stop-card.is-layover .stop-name > span {
+  background: var(--blue);
+}
+
 .stop-card::before {
   position: absolute;
   top: 24px;
@@ -1830,6 +1839,44 @@ input:focus {
   min-width: 40px;
   text-align: center;
   font-size: 10px;
+}
+
+.stop-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid #e3e3da;
+  border-radius: 7px;
+  background: #f5f4ed;
+}
+
+.stop-mode-row span {
+  color: var(--pine);
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.stop-mode-row button {
+  padding: 3px 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  color: var(--muted);
+  background: transparent;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.stop-mode-row.layover {
+  border-color: #bdd5d2;
+  background: var(--blue-soft);
+}
+
+.stop-mode-row.layover span,
+.stop-mode-row.layover button {
+  color: var(--pine-dark);
 }
 
 .stop-decision {
@@ -2184,6 +2231,16 @@ input:focus {
   color: var(--muted);
   font-size: 7px;
   line-height: 1.45;
+}
+
+.buffer-meter > p {
+  margin: 8px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid rgba(24, 36, 31, 0.1);
+  color: var(--pine-dark);
+  font-size: 7px;
+  font-weight: 750;
+  line-height: 1.55;
 }
 
 .warning-list {

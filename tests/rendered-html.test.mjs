@@ -46,6 +46,9 @@ test("server-renders the Xinjiang route builder", async () => {
   assert.match(visibleText, /住宿待定/);
   assert.match(visibleText, /全屏查看/);
   assert.match(visibleText, /Day 1—Day 9 逐日行程/);
+  assert.match(visibleText, /全程时间总量余量 \+3\.2 天/);
+  assert.match(visibleText, /住宿只决定睡在哪里/);
+  assert.match(visibleText, /设为仅落脚/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton|SkeletonPreview/);
 });
 
@@ -68,6 +71,8 @@ test("keeps planning boundaries, real map data, and local plan management in sou
   assert.match(planner, /generateDays/);
   assert.match(planner, /requiredNights/);
   assert.match(planner, /nightStatus/);
+  assert.match(planner, /Math\.max\(0, stop\.nights - 1\)/);
+  assert.match(planner, /stop\.days \* 8/);
   assert.match(planner, /compareCarReturn/);
   assert.match(routeMap, /tile\.openstreetmap\.org/);
   assert.match(routeMap, /router\.project-osrm\.org/);
